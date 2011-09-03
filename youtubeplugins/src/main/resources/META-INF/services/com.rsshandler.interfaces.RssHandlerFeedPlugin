@@ -1,0 +1,5 @@
+com.rsshandler.plugins.youtube.UserImpl
+com.rsshandler.plugins.youtube.StandardImpl
+com.rsshandler.plugins.youtube.FavoriteImpl
+com.rsshandler.plugins.youtube.SubscriptionsImpl
+com.rsshandler.plugins.youtube.PlaylistImpl

@@ -13,6 +13,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.prefs.Preferences;
 import java.net.URL;
+import java.util.logging.Logger;
 
 public class Gui implements ClipboardOwner {
   private PodcastServer server;
@@ -27,7 +28,8 @@ public class Gui implements ClipboardOwner {
   private static final String PROXY_MODE_PREF = "proxyMode";
   private static final String PORT_PREF = "port";
   private static final String RSS_SERVER_PREF = "rssserver";
-  
+ private  Logger logger = Logger.getLogger("Gui");
+ 
   private TrayIcon trayIcon;
   public void setServer(PodcastServer server) {
     this.server = server;
@@ -79,13 +81,13 @@ public class Gui implements ClipboardOwner {
 		
         sysTray = SystemTray.getSystemTray();
         String imgName = "images/tray.gif";
-		URL imgURL = getClass().getResource(imgName);
+        Toolkit tk = Toolkit.getDefaultToolkit();
+		URL imgURL = getClass().getClassLoader().getResource(imgName);
 		
 		if (imgURL == null) {
 			System.out.println(imgName + " not found");
 		}
 		
-        Toolkit tk = Toolkit.getDefaultToolkit();
         Image image = null;
         try {
            image = tk.getImage(imgURL);
@@ -144,7 +146,7 @@ public class Gui implements ClipboardOwner {
 	    // Tray not supported
 		System.out.println("System tray not a supported feature of this OS.  Disabling feature.");
 	}
-    startServer();
+    //startServer();
   }
 
   private JMenuBar createMenu() {
@@ -413,28 +415,28 @@ public class Gui implements ClipboardOwner {
   }
 
   private String getStandardUrl(StandardFeed feed, int format, int size, String orderby, boolean removeDescription, boolean removeTitle, String country, String period) {
-    String url = getPodcastUrl("standard", feed.getId(), format, size, orderby, removeDescription, removeTitle);
+    String url = getPodcastUrl("request.rss", feed.getId(), format, size, orderby, removeDescription, removeTitle);
     if (country.length() > 0) {
       url += "&country="+country;
     }
-    url += "&period="+period;
+    url += "&period="+period + "feedtype=standard";
     return url;
   }
 
   private String getPlaylistPodcastUrl(String text, int format, int size, String orderby, boolean removeDescription, boolean removeTitle) {
-    return getPodcastUrl("playlist", text, format, size, orderby, removeDescription, removeTitle);
+    return getPodcastUrl("request.rss", text, format, size, orderby, removeDescription, removeTitle) + "&feedtype=playlist";
   }
 
   private String getFavoritesPodcastUrl(String text, int format, int size, String orderby, boolean removeDescription, boolean removeTitle) {
-    return getPodcastUrl("favorite", text, format, size, orderby, removeDescription, removeTitle);
+    return getPodcastUrl("request.rss", text, format, size, orderby, removeDescription, removeTitle) + "&feedtype=favorite";
   }
 
   private String getSubscriptionsPodcastUrl(String text, int format, int size, String orderby, boolean removeDescription, boolean removeTitle) {
-	 return getPodcastUrl("subscriptions", text, format, size, orderby, removeDescription, removeTitle);
+	 return getPodcastUrl("request.rss", text, format, size, orderby, removeDescription, removeTitle) + "&feedtype=sub";
  }
 
   private String getUserPodcastUrl(String text, int format, int size, String orderby, boolean removeDescription, boolean removeTitle) {
-    return getPodcastUrl("user.rss", text, format, size, orderby, removeDescription, removeTitle);
+    return getPodcastUrl("request.rss", text, format, size, orderby, removeDescription, removeTitle) + "&feedtype=user";
   }
 
   private String getPodcastUrl(String type, String text, int format, int size, String orderby, boolean removeDescription, boolean removeTitle) {
@@ -539,22 +541,27 @@ public class Gui implements ClipboardOwner {
   public void startServer() {
     startServer.setEnabled(false);
     stopServer.setEnabled(true);
-    new Thread(new Runnable() {
+    
+	new Thread(new Runnable() {
       public void run() {
         server.setPort(port);
         server.setProxyMode(proxyMode);
-        boolean result = server.start();
+        logger.info("Starting podcastserver");
+		boolean result = server.start();
         if (!result) {
-          JOptionPane.showMessageDialog(frame, "Cann't start server, for error message - check logs", "Server error", JOptionPane.ERROR_MESSAGE);
-          startServer.setEnabled(true);
+          JOptionPane.showMessageDialog(frame, "Cann't start server, for error message - check logs", 
+				"Server error", JOptionPane.ERROR_MESSAGE);
+         
+		  startServer.setEnabled(true);
           stopServer.setEnabled(false);
         }
       }
     }).start();
+	
     updateStats();
   }
 
-   public static void main(String[] args) {
+   /*public static void main(String[] args) {
     PodcastServer server = new PodcastServer() {
       @Override
       public int getPort() {
@@ -587,7 +594,7 @@ public class Gui implements ClipboardOwner {
     Gui gui = new Gui();
     gui.setServer(server);
     gui.createGui();
-  }
+  }*/
 
   private class YoutubeFormat {
     private int id;

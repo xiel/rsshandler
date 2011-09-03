@@ -1,0 +1,7 @@
+archivesBaseName = 'rsshandler-ng-api'
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+}

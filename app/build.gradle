@@ -1,0 +1,23 @@
+
+archivesBaseName = 'rsshandler-ng-app'
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+}
+
+dependencies {
+	compile project(':api')
+    runtime project(':api')
+}
+
+/*processResources {
+	ant.mkdir(dir:"build/classes/main/com/rsshandler/images")
+	ant.copy(file:"images/tray.gif", tofile:"build/classes/main/com/rsshandler/images/tray.gif")
+}*/
+
+manifest.mainAttributes(
+	'Main-Class': 'com.rsshandler.Main',
+	'Implementation-Version': "${version}, ${new Date()}",
+)	

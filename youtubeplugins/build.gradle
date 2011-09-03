@@ -1,0 +1,18 @@
+archivesBaseName = 'rsshandler-ng-plugin-yt'
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+}
+
+dependencies {
+	compile project(':api')
+    runtime project(':api')
+}
+
+pluginDebugDir = new File("$rootProject.projectDir/debug/plugins")
+
+jar {	
+	destinationDir = pluginDebugDir
+}
