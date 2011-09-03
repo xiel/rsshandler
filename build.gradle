@@ -17,7 +17,7 @@ subprojects {
 		compile group: 'org.eclipse.jetty', name: 'jetty-http', version: '7.0.1.v20091125'
 		compile group: 'javax.servlet', name: 'servlet-api', version: '2.5'
 		compile group: 'com.miglayout', name: 'miglayout', version: '3.7.2'
-		compile fileTree(dir: 'lib', include: '*.jar')
+		compile fileTree(dir: '../lib', include: '*.jar')
 		testCompile group: 'junit', name: 'junit', version: '4.+'
 	}
 
