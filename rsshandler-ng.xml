@@ -1,0 +1,43 @@
+<launch4jConfig>
+  <dontWrapJar>false</dontWrapJar>
+  <headerType>gui</headerType>
+  <jar>C:\Users\jerome\workspace\rsshandler-ng\debug\rsshandler-ng-app-0.1.jar</jar>
+  <outfile>C:\Users\jerome\workspace\rsshandler-ng\debug\rsshandler-ng.exe</outfile>
+  <errTitle></errTitle>
+  <cmdLine>8083</cmdLine>
+  <chdir>.</chdir>
+  <priority>normal</priority>
+  <downloadUrl>http://java.com/download</downloadUrl>
+  <supportUrl></supportUrl>
+  <customProcName>false</customProcName>
+  <stayAlive>false</stayAlive>
+  <manifest></manifest>
+  <icon>C:\Users\jerome\workspace\rsshandler-ng\app\src\main\resources\images\tray.ico</icon>
+  <!-- <classPath>
+    <mainClass>com.rsshandler.Main</mainClass>
+    <cp>gdata-client-1.0.jar</cp>
+    <cp>gdata-client-meta-1.0.jar</cp>
+    <cp>gdata-core-1.0.jar</cp>
+    <cp>gdata-media-1.0.jar</cp>
+    <cp>gdata-youtube-2.0.jar</cp>
+    <cp>google-collect-1.0-rc1.jar</cp>
+    <cp>jetty-continuation-7.0.1.v20091125.jar</cp>
+    <cp>jetty-http-7.0.1.v20091125.jar</cp>
+    <cp>jetty-io-7.0.1.v20091125.jar</cp>
+    <cp>jetty-security-7.0.1.v20091125.jar</cp>
+    <cp>jetty-server-7.0.1.v20091125.jar</cp>
+    <cp>jetty-servlet-7.0.1.v20091125.jar</cp>
+    <cp>jetty-util-7.0.1.v20091125.jar</cp>
+    <cp>jsr305.jar</cp>
+    <cp>mail.jar</cp>
+    <cp>miglayout-3.7.2.jar</cp>
+    <cp>servlet-api-2.5.jar</cp>
+    <cp>rsshandler-ng-api-0.1</cp>
+  </classPath>-->
+  <jre>
+    <path></path>
+    <minVersion>1.6.0</minVersion>
+    <maxVersion></maxVersion>
+    <jdkPreference>preferJre</jdkPreference>
+  </jre>
+</launch4jConfig>
