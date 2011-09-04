@@ -1,36 +1,101 @@
-subprojects {
-    apply plugin: 'java'
-	apply plugin: 'eclipse'
-	
-	sourceCompatibility = 1.6
-	archivesBaseName = 'rsshandler-ng'	
-	version = '0.1'
+usePlugin 'java'
 
-	repositories {
-		mavenCentral()
-	}
+sourceCompatibility = 1.6
 
-	 dependencies {
-		compile group: 'org.eclipse.jetty', name: 'jetty-server', version: '7.0.1.v20091125'
-		compile group: 'org.eclipse.jetty', name: 'jetty-servlet', version: '7.0.1.v20091125'
-		compile group: 'org.eclipse.jetty', name: 'jetty-util', version: '7.0.1.v20091125'
-		compile group: 'org.eclipse.jetty', name: 'jetty-http', version: '7.0.1.v20091125'
-		compile group: 'javax.servlet', name: 'servlet-api', version: '2.5'
-		compile group: 'com.miglayout', name: 'miglayout', version: '3.7.2'
-		compile fileTree(dir: 'lib', include: '*.jar')
-		testCompile group: 'junit', name: 'junit', version: '4.+'
-	}
+archivesBaseName = 'rsshandler'
 
-debugDir = new File("$rootProject.projectDir/debug")
-	
+version = '3.0.1'
 
-    jar {	
-        manifest.attributes provider: 'gradle'
-		destinationDir = debugDir
-	}
-	
-	//manifest.mainAttributes(
-	//	'Main-Class': 'com.rsshandler.Main',
-	//	'Implementation-Version': "${version}, ${new Date()}",
-	//)	
+manifest.mainAttributes(
+    'Main-Class': 'com.rsshandler.Main',
+    'Implementation-Version': "${version}, ${new Date()}",
+)
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compile group: 'org.eclipse.jetty', name: 'jetty-server', version: '7.0.1.v20091125'
+    compile group: 'org.eclipse.jetty', name: 'jetty-servlet', version: '7.0.1.v20091125'
+    compile group: 'org.eclipse.jetty', name: 'jetty-util', version: '7.0.1.v20091125'
+    compile group: 'org.eclipse.jetty', name: 'jetty-http', version: '7.0.1.v20091125'
+    compile group: 'javax.servlet', name: 'servlet-api', version: '2.5'
+    compile group: 'com.miglayout', name: 'miglayout', version: '3.7.2'
+	compile fileTree(dir: 'lib', include: '*.jar')
+    testCompile group: 'junit', name: 'junit', version: '4.+'
+}
+
+processResources {
+  ant.mkdir(dir:"build/classes/main/com/rsshandler/images")
+  ant.copy(file:"images/tray.gif", tofile:"build/classes/main/com/rsshandler/images/tray.gif")
+}
+
+
+
+ant {
+  taskdef( name: 'gcupload', classname: 'net.bluecow.googlecode.ant.GoogleCodeUploadTask', classpath: 'ant/ant-googlecode-0.0.2.jar' )
+}
+
+task uploadLocalAll(dependsOn: 'jar') << {
+ println projectDir
+ createLocalDeployment('build/local/', 'http://localhost:8080/')
+}
+
+task uploadLocalJar(dependsOn: 'jar') << {
+  createLocalJar('build/local', 'http://localhost:8080/')
+}
+
+void updateJnlp(String filename, String codebase, boolean updateHref) {
+  File jnlp = new File(filename)
+  def root = new XmlParser().parse(jnlp)
+  root.@codebase = codebase
+  if (updateHref) {
+    root.@href = "rsshandler-${version}.jnlp"
+  }
+  def rsshandlerjar = root.resources.jar.find{ it.'@href'.contains('rsshandler') }
+  rsshandlerjar.@href = "rsshandler-${version}.jar"
+  new XmlNodePrinter(new PrintWriter(jnlp)).print(root)
+}
+
+task uploadBetaJar(dependsOn: 'jar') << {
+  createLocalJar('build/signed', 'http://rsshandler.googlecode.com/files/')
+  ant.gcupload(username:gcusername, password:gcpassword, projectname:"rsshandler", filename:"build/signed/rsshandler-${version}.jar", targetfilename:"rsshandler-${version}.jar", summary:"RSS Handler java binary files", labels:"")
+  ant.gcupload(username:gcusername, password:gcpassword, projectname:"rsshandler", filename:"build/signed/rsshandler-${version}.jnlp", targetfilename:"rsshandler-${version}.jnlp", summary:"JWS installation script", labels:"")
+}
+
+task uploadBetaAll << {
+  createLocalDeployment('build/signed/', 'http://rsshandler.googlecode.com/files/')
+  collection = files { file('build/signed/').listFiles() }
+  collection.each { 
+    ant.gcupload(username:gcusername, password:gcpassword, projectname:"rsshandler", filename:it, targetfilename:it.name, summary:"automatic", labels:"")
+  }
+}
+
+task release(dependsOn: 'jar') << {
+  dir = 'build/signed'
+  ant.copy(file:"rsshandler.jnlp", tofile:"$dir/rsshandler.jnlp")
+  updateJnlp("$dir/rsshandler.jnlp", 'http://rsshandler.googlecode.com/files/', false)
+  ant.gcupload(username:gcusername, password:gcpassword, projectname:"rsshandler", filename:"build/signed/rsshandler.jnlp", targetfilename:"rsshandler.jnlp", summary:"JWS installation script", labels:"Featured")
+}
+
+void createLocalDeployment(String dir, String codebase) {
+  ant.delete(dir:dir)
+  ant.mkdir(dir:dir)
+  ant.mkdir(dir:"debug")
+  
+  for(file in configurations.runtime.resolve()) {
+    ant.signjar(destDir: dir, jar: file, alias:keyalias, keystore:keyfile, storepass:keypass, preservelastmodified:"true")
+    ant.copy(file:file, todir:"debug")
+  }
+  createLocalJar(dir, codebase)
+  ant.copy(file:"build/libs/rsshandler-${version}.jar", tofile:"debug/rsshandler-${version}.jar")
+  
+
+}
+
+void createLocalJar(String dir, String codebase) {
+  ant.signjar(destDir: dir, jar: tasks.jar.archivePath, alias:keyalias, keystore:keyfile, storepass:keypass, preservelastmodified:"true")
+  ant.copy(file:"rsshandler.jnlp", tofile:"$dir/rsshandler-${version}.jnlp")
+  updateJnlp("$dir/rsshandler-${version}.jnlp", codebase, true)
 }
