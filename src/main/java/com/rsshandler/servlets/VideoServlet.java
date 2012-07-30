@@ -1,5 +1,6 @@
 package com.rsshandler.servlets;
 
+import java.io.FileNotFoundException;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -55,25 +56,35 @@ public class VideoServlet extends HttpServlet {
       URL url = new URL(YOUTUBE_URL + id);
       URLConnection connection = url.openConnection();
       logger.info(String.format("Request properties: %s", connection.getRequestProperties()));
-      String str = Utils.readString(connection.getInputStream());
-      logger.info(String.format("Headers: %s", connection.getHeaderFields()));
-
-      String redirect = null;
+      InputStream inputStream = null;
       try {
-         redirect = getVideoLink(str, format, fallback);
-      }
-      catch (IllegalArgumentException ex) {
-         logger.log(Level.WARNING, "Video URL: {0}\n{1}", new Object[]{YOUTUBE_URL + id, ex.toString()});
-         response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, url.getPath() + ":\n" + ex.toString());
+         inputStream = connection.getInputStream();
+      } catch (IOException ex) {
+         // User deleted videos cause a FileNotFoundException.
+         logger.log(Level.WARNING, "{0}", ex.toString());
+         response.sendError(HttpServletResponse.SC_NOT_FOUND, url.getPath() + ":\n" + ex.toString());
       }
 
-      if (redirect != null) {
-         if (proxy) {
-            logger.info(String.format("Proxy: %s", redirect));
-            proxyVideo(redirect, response);
-         } else {
-            logger.info(String.format("Redirect: %s", redirect));
-            response.sendRedirect(redirect);
+      if (inputStream != null) {
+         String str = Utils.readString(inputStream);
+         logger.info(String.format("Headers: %s", connection.getHeaderFields()));
+
+         String redirect = null;
+         try {
+            redirect = getVideoLink(str, format, fallback);
+         } catch (IllegalArgumentException ex) {
+            logger.log(Level.WARNING, "Video URL: {0}\n{1}", new Object[]{YOUTUBE_URL + id, ex.toString()});
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, url.getPath() + ":\n" + ex.toString());
+         }
+
+         if (redirect != null) {
+            if (proxy) {
+               logger.info(String.format("Proxy: %s", redirect));
+               proxyVideo(redirect, response);
+            } else {
+               logger.info(String.format("Redirect: %s", redirect));
+               response.sendRedirect(redirect);
+            }
          }
       }
    }
