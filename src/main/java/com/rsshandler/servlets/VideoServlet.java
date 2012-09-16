@@ -27,7 +27,12 @@ import java.util.TreeMap;
 public class VideoServlet extends HttpServlet {
 
    private static final String URL_REGEX = "url=(http.+?videoplayback.+?id=.+?)(\\\\u0026|&)quality="; // match the URL starting from http until before quality
-
+   private static final String requiredParameters[] = {"upn"       , "sparams"  , "fexp"  , "key" ,
+                                                       "expire"    , "itag"     , "ipbits", "sver",
+                                                       "ratebypass", "mt"       , "ip"    , "mv"  ,
+                                                       "source"    , "ms"       , "cp"    , "id"  ,
+                                                       "newshard"  , "signature", "gcr"
+   };
    private Logger logger = Logger.getLogger(this.getClass().getName());
    private final VideoFormatsMap videoFormatsMap = new VideoFormatsMap();
    private static final String YOUTUBE_URL = "http://www.youtube.com/watch?v=";
@@ -156,6 +161,9 @@ public class VideoServlet extends HttpServlet {
       {
          urlMap = urlMap.substring(0, urlMapIndex);
       }
+
+      urlMap = urlMap.replaceAll("\\\\u0026", "&");
+
       return urlMap;
    }
 
@@ -234,25 +242,50 @@ public class VideoServlet extends HttpServlet {
 
    // 4.
    private String getCleanedURL(String url) throws UnsupportedEncodingException {
-      /*
-       * assuming url is in a format similar to the following:
-       * http://o-o---preferred---stc-ruh7---v5---lscache8.c.youtube.com/videoplayback?upn=XfFiHq_PxfU&sparams=cp,id,ip,ipbits,itag,ratebypass,source,upn,expire&fexp=902906,914075,909909,910206,915507,907217,907335,921602,922600,919804,924500,924700,913547,904721,920706,924402,907344,912706,902518&ms=au&itag=45&ipbits=8&signature=A85C9CEA83DD7C9AD2F889D9159F072F844753A4.2294976BD6B1D9F3DC7538A2C7C95729CA823F84&mv=m&sver=3&mt=1343263040&ratebypass=yes&source=youtube&expire=1343287441&key=yt1&ip=77.30.93.26&cp=U0hTSFJTVV9JS0NOM19KTVlFOk5UenZTRXdmQXYz&id=ee1f32370653a086
-       *
-       * 4.1. Unescape the percent escapes.
-       * 4.2. If url does not contain a "newshard" parameter with a "yes" value,
-       *      it may cause a 403 error. So append the parameter to the url
-       */
+      
       logger.log(Level.INFO, "Cleaning URL: {0}", url);
 
-      String cleanedURL = URLDecoder.decode(url, "UTF-8");
-      if (url.indexOf("newshard") == -1) {
-         cleanedURL = cleanedURL + "&newshard=yes";
+      url = URLDecoder.decode(url, "UTF-8");
+      int queryIndex = url.indexOf("?") + 1;
+      String cleanedURL = url.substring(0, queryIndex);
+      String paramsMap[] = url.substring(queryIndex).split("&");
+
+      for (int i = 0; i < requiredParameters.length; i++) {
+         String param = requiredParameters[i];
+         String value = getValueForParameter(paramsMap, param);
+         if (value != null) {
+            cleanedURL = cleanedURL + param + "=" + value;
+            if (i + 1 != requiredParameters.length)
+               cleanedURL = cleanedURL + "&";
+         }
       }
 
       return cleanedURL;
    }
 
+   private String getValueForParameter(String[] paramsMap, String param) {
+      String val = null;
 
+      for (int i = 0; i < paramsMap.length; i++) {
+         if (paramsMap[i].startsWith(param + "="))
+         {
+            val = paramsMap[i].substring(paramsMap[i].indexOf("=") + 1);
+            break;
+         }
+      }
+
+      if (val == null)
+      {
+         // signature may be there as "sig"
+         if (param.equalsIgnoreCase("signature"))
+            return getValueForParameter(paramsMap, "sig");
+         else if (param.equalsIgnoreCase("newshard"))
+            return "yes";
+      }
+
+
+      return val;
+   }
 
    private String getFormatString(int format) {
       /** itag format mapping:
