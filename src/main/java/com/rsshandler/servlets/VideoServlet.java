@@ -137,12 +137,15 @@ public class VideoServlet extends HttpServlet {
 
    private String getURLMap(String content) {
       logger.info("Looking for URL map in content.");
-      int urlMapIndex = content.indexOf("\"url_encoded_fmt_stream_map\"");
+      final String TAG_NAME = "\"url_encoded_fmt_stream_map\": \"";
+      int urlMapIndex = content.indexOf(TAG_NAME);
       if (urlMapIndex == -1) {
          return null;
       }
       logger.info("URL map found.");
-      String urlMap = content.substring(urlMapIndex);
+
+      String urlMap = content.substring(urlMapIndex + TAG_NAME.length());
+
       urlMapIndex = urlMap.indexOf("\", ");
       if (urlMapIndex != -1) {
          urlMap = urlMap.substring(0, urlMapIndex);
@@ -288,8 +291,8 @@ public class VideoServlet extends HttpServlet {
       private final String[] URL_REGEXES = new String[] {
          // Should be sorted by reliablility, where the most reliable at the top
          // and the least reliable at the bottom
-         "url=(http.+?videoplayback.+id=.+?)(\\\\u0026|&)(quality|fallback_host|$)=",
-         "(http.+?videoplayback.+id=.+?)(\\\\u0026|&|$)"
+         "url[=|%3D](http.+?videoplayback.+id[=|%3D].+?)(?=&|,|$)",
+         "(http.+?videoplayback.*?id[=|%3D].+?)(?=&|,|$)"
       };
       private final String SIG_REGEX = "(sig|signature)(=|%3D)([0-9a-zA-Z]+\\.[0-9a-zA-Z]+)";
       private final int URL_REGEX_GROUP = 1;
