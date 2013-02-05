@@ -1,6 +1,5 @@
 package com.rsshandler.servlets;
 
-import java.io.FileNotFoundException;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -17,7 +16,9 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLDecoder;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Logger;
 import java.util.logging.Level;
 import java.util.regex.Matcher;
@@ -26,15 +27,8 @@ import java.util.TreeMap;
 
 public class VideoServlet extends HttpServlet {
 
-   private static final String URL_REGEX = "url=(http.+?videoplayback.+?id=.+?)(\\\\u0026|&)quality="; // match the URL starting from http until before quality
-   private static final String requiredParameters[] = {"upn"       , "sparams"  , "fexp"  , "key" ,
-                                                       "expire"    , "itag"     , "ipbits", "sver",
-                                                       "ratebypass", "mt"       , "ip"    , "mv"  ,
-                                                       "source"    , "ms"       , "cp"    , "id"  ,
-                                                       "newshard"  , "signature", "gcr"
-   };
    private Logger logger = Logger.getLogger(this.getClass().getName());
-   private final VideoFormatsMap videoFormatsMap = new VideoFormatsMap();
+   private final VideoFormatsMap VIDEO_FORMATS_MAP = new VideoFormatsMap();
    private static final String YOUTUBE_URL = "http://www.youtube.com/watch?v=";
    private boolean proxy;
 
@@ -113,52 +107,44 @@ public class VideoServlet extends HttpServlet {
 
       // 1. Get the URL map. Parsing the map is much faster than parsing the whole content.
       String urlMap = getURLMap(content);
-      if (urlMap == null)
-      {
+      if (urlMap == null) {
          // Perhaps the video has been removed, has been set as private,
-         // or they've changed the attribute name. try to parse the whole content.
-         logger.info("URL map can't be found. Trying to parse the content.");
-         urlMap = content;
+         // or YT have changed the attribute name.
+         throw new IllegalArgumentException("Couldn't find URL map.");
       }
 
       // 2. Get all the available URLs.
-      String[] links = getLinks(urlMap);
-      if (links == null || links.length == 0)
-      {
-         if (urlMap.indexOf("liveplay") >= 0) {
+      VideoURL[] videoURLs = getVideoURLs(urlMap);
+      if (videoURLs == null || videoURLs.length == 0) {
+         if (urlMap.indexOf("liveplay") >= 0)
             throw new IllegalArgumentException("Can't download live play videos.");
-         }
-         else {
-            throw new IllegalArgumentException("Couldn't find links in URL map.\n" + urlMap);
-         }
+
+         throw new IllegalArgumentException("Couldn't find links in URL map: " + urlMap);
       }
 
       // 3. Get the prefered URL according to the specified format.
-      String preferredURL = getPreferredURL(links, fmt, fb);
-      if (preferredURL == null)
-      {
+      VideoURL preferredVideoURL = getPreferredVideoURL(videoURLs, fmt, fb);
+      if (preferredVideoURL == null) {
          throw new IllegalArgumentException("Couldn't find preferred URL :" + getFormatString(fmt) + ".");
       }
 
-      // 4. Clean up the URL, or return the original if it can't be cleaned
-      return getCleanedURL(preferredURL);
+      String preferredURL = preferredVideoURL.getURL();
+      if (preferredURL == null)
+         throw new IllegalArgumentException("Couldn't parse URL from " + preferredVideoURL);
+
+      return preferredURL;
    }
 
-
-   // 1.
    private String getURLMap(String content) {
       logger.info("Looking for URL map in content.");
       int urlMapIndex = content.indexOf("\"url_encoded_fmt_stream_map\"");
-      if (urlMapIndex == -1)
-      {
-         logger.info("Couldn't find URL map in content.");
+      if (urlMapIndex == -1) {
          return null;
       }
       logger.info("URL map found.");
       String urlMap = content.substring(urlMapIndex);
       urlMapIndex = urlMap.indexOf("\", ");
-      if (urlMapIndex != -1)
-      {
+      if (urlMapIndex != -1) {
          urlMap = urlMap.substring(0, urlMapIndex);
       }
 
@@ -167,69 +153,106 @@ public class VideoServlet extends HttpServlet {
       return urlMap;
    }
 
-   // 2.
-   private String[] getLinks(String urlMap) throws UnsupportedEncodingException {
-      logger.info("Parsing all available download links.");
+   private VideoURL[] getVideoURLs(String urlMap) {
+      logger.info("Parsing all available download URLs.");
 
-      urlMap = URLDecoder.decode(urlMap, "UTF-8");
+      String[] rawURLs = urlMap.split(",");
 
-      Pattern pattern = Pattern.compile(URL_REGEX, Pattern.CASE_INSENSITIVE);
-      Matcher matcher = pattern.matcher(urlMap);
-      // calculate the number of matches
-      int numOfMatches = 0;
-      while (matcher.find()) {
-         numOfMatches++;
+      if (rawURLs.length == 1) {
+         // the URLs couldn't be split by a comma. YT have changed the source?
+         logger.log(Level.INFO, "Couldn't parse the URL map. Falling back to regular expressions.");
+
+         // assuming that the urlMap starts with a key (e.g. type, itag, sig, url, etc.)
+         // get this key, and count its occurrences in the urlMap. If we have more
+         // than 1, then we'll use this key to build a dynamic regex to extract the URLs
+         int indexOfEqualsSign = urlMap.indexOf("=");
+         
+         if (indexOfEqualsSign == -1)
+            indexOfEqualsSign = urlMap.indexOf("%3D");
+
+         if (indexOfEqualsSign != -1) {
+            String key = urlMap.substring(0, indexOfEqualsSign);
+            logger.log(Level.INFO, "Found term: \"{0}\"", key);
+
+            Pattern pattern = Pattern.compile(key, Pattern.CASE_INSENSITIVE);
+            Matcher matcher = pattern.matcher(urlMap);
+            int numMatches = 0;
+            while (matcher.find())
+               numMatches++;
+
+            logger.log(Level.INFO, "{0} occurrences found for term \"{1}\" in the URL map.", new Object[]{numMatches, key});
+//            if (numMatches == 1) {
+//               logger.log(Level.WARNING, "\"{0}\" not suitable for use in a regex." + key);
+//               return null;
+//            }
+
+            final String regex = "(" + key + "=.*?)(?=[^0-9a-zA-Z]" + key + "|$)";
+            logger.log(Level.INFO, "Using regex {0}", regex);
+
+            pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
+            matcher = pattern.matcher(urlMap);
+            numMatches = 0;
+            while (matcher.find())
+               numMatches++;
+
+            logger.log(Level.INFO, "Found {0} matches.", numMatches);
+            if (numMatches == 0) return null;
+
+            matcher.reset();
+
+            rawURLs = new String[numMatches];
+            int i = 0;
+            while (matcher.find())
+               rawURLs[i++] = matcher.group(1);
+         }
+
+         else {
+            logger.log(Level.WARNING, "Failed to parse the URL map:\n{0}", urlMap);
+            return null;
+         }
       }
-      matcher.reset();
+      
+      VideoURL[] videoURLs = new VideoURL[rawURLs.length];
+      for (int i = 0; i < videoURLs.length; i++)
+         videoURLs[i] = new VideoURL(rawURLs[i]);
 
-      if (numOfMatches == 0)
-         return null;
-
-      String[] links = new String[numOfMatches];
-      int i = 0;
-      while (matcher.find()) {
-         links[i] = matcher.group(1);
-         i++;
-      }
-
-      logger.log(Level.INFO, "Found {0} download links.", links.length);
-      return links;
+      logger.log(Level.INFO, "Found {0} download URLs.", videoURLs.length);
+      return videoURLs;
    }
 
-   // 3.
-   private String getPreferredURL(String[] links, int format, int fallback) {
+   private VideoURL getPreferredVideoURL(VideoURL[] urls, int format, int fallback) {
 
       logger.log(Level.INFO, "Looking for best URL. Preferred format: {0}. Fallback: {1}", new Object[]{getFormatString(format), fallback == 1 ? "Yes" : "No"});
 
-      String url = getLinkWithFormat(links, format);
+      VideoURL url = getVideoURLWithFormat(urls, format);
+
       if (url == null && fallback == 1) {
 
-         Object vf = videoFormatsMap.get(format);
+         Object vf = VIDEO_FORMATS_MAP.get(format);
          while (vf != null) {
             VideoFormat v = (VideoFormat) vf;
 
             int fallbackFormat = v.getFallback();
 
-            url = getLinkWithFormat(links, fallbackFormat);
+            url = getVideoURLWithFormat(urls, fallbackFormat);
 
-            if (url != null) {
+            if (url != null)
                break;
-            }
 
-            vf = videoFormatsMap.get(fallbackFormat);
+            vf = VIDEO_FORMATS_MAP.get(fallbackFormat);
          }
       }
 
       return url;
    }
 
-   private String getLinkWithFormat(String[] links, int format) {
-      String url = null;
-      for (int i = 0; i < links.length; i++) {
-         String u = links[i];
+   private VideoURL getVideoURLWithFormat(VideoURL[] urls, int format) {
+      VideoURL url = null;
+      for (int i = 0; i < urls.length; i++) {
+         int fmt = urls[i].getFormat();
 
-         if (u.indexOf("itag=" + format) > -1 || u.indexOf("itag%3D" + format) > -1) {
-            url = u;
+         if (fmt == format) {
+            url = urls[i];
             break;
          }
       }
@@ -240,89 +263,199 @@ public class VideoServlet extends HttpServlet {
       return url;
    }
 
-   // 4.
-   private String getCleanedURL(String url) throws UnsupportedEncodingException {
-      
-      logger.log(Level.INFO, "Cleaning URL: {0}", url);
+   private class VideoURL {
+      /*
+       * The purpose of this helper class is to encapsulate the parsing of
+       * individual URLs from the rest of the class.
+       *
+       * The expected format for rawURL (without the new lines):
+       *   type=video%2Fwebm%3B+codecs%3D%22vp8.0%2C+vorbis%22\u0026
+       *   itag=45\u0026
+       *   url=http%3A%2F%2Fr5---sn-nuj-g0il.c.youtube.com%2Fvideoplayback%3Fexpire%3D1359772705%26sver%3D3%26itag%3D45%26id%3Daf7c8e8b14a72445%26cp%3DU0hUTldSUF9FT0NONF9PTFRIOjBWbzQ0bU5ZWllw%26ms%3Dau%26mt%3D1359751214%26sparams%3Dcp%252Cid%252Cip%252Cipbits%252Citag%252Cratebypass%252Csource%252Cupn%252Cexpire%26mv%3Dm%26source%3Dyoutube%26fexp%3D913606%252C901700%252C916612%252C922910%252C928006%252C920704%252C912806%252C922403%252C922405%252C929901%252C913605%252C925710%252C920201%252C913302%252C919009%252C911116%252C926403%252C910221%252C901451%252C919114%26upn%3Dbsvgwu996kc%26newshard%3Dyes%26ipbits%3D8%26ratebypass%3Dyes%26ip%3D1.11.1.111%26key%3Dyt1\u0026
+       *   sig=502B8CB8901B3D9F993CA700679A1B2D1001AE33.38E86E9E9231C98C2C80FF67C48FED16E8AEA259\u0026
+       *   fallback_host=tc.v20.cache4.c.youtube.com\u0026
+       *   quality=hd720
+       */
+      private String rawURL;
+      private VideoFormat format;
 
-      url = URLDecoder.decode(url, "UTF-8");
-      int queryIndex = url.indexOf("?") + 1;
-      String cleanedURL = url.substring(0, queryIndex);
-      String paramsMap[] = url.substring(queryIndex).split("&");
+      private final String MAIN_SPLIT_STR = "\u0026";
 
-      for (int i = 0; i < requiredParameters.length; i++) {
-         String param = requiredParameters[i];
-         String value = getValueForParameter(paramsMap, param);
-         if (value != null) {
-            cleanedURL = cleanedURL + param + "=" + value;
-            if (i + 1 != requiredParameters.length)
-               cleanedURL = cleanedURL + "&";
+      private final String ITAG_REGEX = "itag(=|%3D)([0-9]+)";
+      private final int ITAG_REGEX_GROUP = 2;
+
+      // The following regexes will be used only if the expected format has changed.
+      private final String[] URL_REGEXES = new String[] {
+         // Should be sorted by reliablility, where the most reliable at the top
+         // and the least reliable at the bottom
+         "url=(http.+?videoplayback.+id=.+?)(\\\\u0026|&)(quality|fallback_host|$)=",
+         "(http.+?videoplayback.+id=.+?)(\\\\u0026|&|$)"
+      };
+      private final String SIG_REGEX = "(sig|signature)(=|%3D)([0-9a-zA-Z]+\\.[0-9a-zA-Z]+)";
+      private final int URL_REGEX_GROUP = 1;
+      private final int SIG_REGEX_GROUP = 3;
+
+      private VideoURL(String raw) {
+         rawURL = raw;
+         format = null;
+      }
+
+      private int getFormat() {
+         if (format != null)
+            return format.getResId();
+
+         String[] splits = rawURL.split(MAIN_SPLIT_STR);
+         for (int i = 0; i < splits.length; i++) {
+            String string = splits[i];
+            Pattern pattern = Pattern.compile(ITAG_REGEX, Pattern.CASE_INSENSITIVE);
+            Matcher matcher = pattern.matcher(string);
+            if (matcher.find()) {
+               try {
+                  int fmt = Integer.parseInt(matcher.group(ITAG_REGEX_GROUP));
+                  format = VIDEO_FORMATS_MAP.get(fmt);
+                  break;
+               }
+               catch (NumberFormatException e) {}
+            }
          }
+         if (format == null)
+            return -1;
+         return format.getResId();
       }
 
-      return cleanedURL;
-   }
+      private String getURL() throws UnsupportedEncodingException {
+         logger.log(Level.INFO, "Cleaning URL.");
 
-   private String getValueForParameter(String[] paramsMap, String param) {
-      String val = null;
-
-      for (int i = 0; i < paramsMap.length; i++) {
-         if (paramsMap[i].startsWith(param + "="))
-         {
-            val = paramsMap[i].substring(paramsMap[i].indexOf("=") + 1);
-            break;
+         String[] splits = rawURL.split(MAIN_SPLIT_STR);
+         Map<String, String> mainParams = new HashMap<String, String>();
+         for (int i = 0; i < splits.length; i++) {
+            String string = splits[i];
+            String[] keyAndVal = getKeyAndVal(string);
+            if (keyAndVal != null) {
+               assert keyAndVal.length == 2;
+               logger.log(Level.INFO, "Found main parameter ({0} : {1})", new Object[]{keyAndVal[0], keyAndVal[1]});
+               mainParams.put(keyAndVal[0], keyAndVal[1]);
+            }
+            else
+               logger.log(Level.WARNING, "Could not parse key and value from {0}.", string);
          }
+
+         String url = null;
+         if (mainParams.containsKey("url"))
+            url = URLDecoder.decode(mainParams.get("url"), "UTF-8");
+
+         else {
+            // Use regex on the raw url
+            logger.log(Level.INFO, "URL not found. Trying to parse the URL using a regular expression.");
+            for (int i = 0; i < URL_REGEXES.length; i++) {
+               Pattern pattern = Pattern.compile(URL_REGEXES[i], Pattern.CASE_INSENSITIVE);
+               Matcher matcher = pattern.matcher(rawURL);
+               if (matcher.find()) {
+                  url = URLDecoder.decode(matcher.group(URL_REGEX_GROUP), "UTF-8");
+                  logger.log(Level.INFO, "Found URL using regex number {0}", i);
+                  break;
+               }
+            }
+         }
+
+         if (url != null)
+            url = validateParametersInURL(url, mainParams);
+         else
+            logger.log(Level.WARNING, "Could not find URL in: {0}", rawURL);
+         
+         return url;
       }
 
-      if (val == null)
-      {
-         // signature may be there as "sig"
-         if (param.equalsIgnoreCase("signature"))
-            return getValueForParameter(paramsMap, "sig");
-         else if (param.equalsIgnoreCase("newshard"))
-            return "yes";
+      private String validateParametersInURL(String url,
+                                             Map<String, String> mainParams) {
+         // check that it contains a signature and an itag
+
+         // 1. signature. Three possible cases:
+         // 1.1 url may not contain a signature
+         // 1.2 url may contain a signature with the name "sig"
+         // 1.3 url may contain a signature with the correct name "signature"
+         if (!url.contains("signature=") && !url.contains("sig=")) {
+            // Case 1:
+            // Check if mainParams contains one, otherwise use a regex.
+            String sig = mainParams.get("signature");
+            if (sig == null)
+               sig = mainParams.get("sig");
+
+            if (sig == null) {
+               // Fallback to a regex.
+               Pattern pattern = Pattern.compile(SIG_REGEX, Pattern.CASE_INSENSITIVE);
+               Matcher matcher = pattern.matcher(rawURL);
+               if (matcher.find()) {
+                  sig = matcher.group(SIG_REGEX_GROUP);
+                  url = url + "&signature=" + sig;
+               }
+               else
+                  logger.log(Level.WARNING, "Could not find signature for URL: {0}", rawURL);
+            }
+            else
+               url = url + "&signature=" + sig;
+         }
+
+         else if (url.contains("sig=")) {
+            // Case 2: replace sig with signature
+            url = url.replaceAll("sig=", "signature=");
+         }
+
+         else {
+            // Case 3:
+            // just check that there isn't a mismatch between it and the
+            // one in mainParams, if any.
+            String sig = mainParams.get("signature");
+            if (sig == null)
+               sig = mainParams.get("sig");
+
+            if (sig != null) {
+               int indexOfSig = url.indexOf(sig);
+               if (indexOfSig == -1)
+                  // mismatch between the signatures
+                  logger.log(Level.WARNING, "Mismatch between signature {0} and the one in the URL: {1}", new Object[] {sig, url});
+            }
+         }
+
+         // 2. itag. Just check that it exists, and that it doesn't conflict
+         //    with the one in mainParams, if any.
+         String itag = mainParams.get("itag");
+         if (url.contains("itag=")) {
+            // check that it doesn't conflict with the one in mainParams, if any.
+            if (itag != null && url.indexOf("itag=" + itag) == -1)
+               // mismatch
+               logger.log(Level.WARNING, "Mismatch between itag {0} and the one in the URL: {1}", new Object[] {itag, url});
+         }
+
+         else {
+            // add the one in mainParams, if any
+            if (itag != null)
+               url = url + "&itag=" + itag;
+            else {
+               // url and mainParams has no itag, use the value returned by getFormat
+               int fmt = this.getFormat();
+               logger.log(Level.WARNING, "Could not find itag. Using {0}", fmt);
+               url = url + "&itag=" + fmt;
+            }
+         }
+
+         return url;
       }
 
+      private String[] getKeyAndVal(String str) {
 
-      return val;
-   }
+         Pattern pattern = Pattern.compile("^([^=]*)=(.*)$", Pattern.CASE_INSENSITIVE);
+         Matcher matcher = pattern.matcher(str);
 
-   private String getFormatString(int format) {
-      /** itag format mapping:
-        *  37 = 1920X1080 MP4
-        *  46 = 1920X1080 WebM
-        *  22 = 1280X720  MP4
-        *  45 = 1280X720  WebM
-        *  35 = Large     FLV
-        *  44 = Large     WebM
-        *  34 = Medium    FLV
-        *  18 = Medium    MP4
-        *  43 = Medium    WebM
-        *  5  = Small     FLV
-        */
-      switch (format) {
-         case 37:
-            return "HD-1080 (MP4)";
-         case 22:
-            return "HD-720 (MP4)";
-         case 18:
-            return "Medium (MP4)";
-         case 35:
-            return "Large (FLV)";
-         case 34:
-            return "Medium (FLV)";
-         case 5:
-            return "Small (FLV)";
-         case 46:
-            return "HD-1080 (WebM)";
-         case 45:
-            return "HD-720 (WebM)";
-         case 44:
-            return "Large (WebM)";
-         case 43:
-            return "Medium (WebM)";
-         default:
-            return "Unknown (" + format + ")";
+         if (matcher.find())
+            return new String[] {matcher.group(1), matcher.group(2)};
+
+         return null;
+      }
+
+      @Override
+      public String toString() {
+         return rawURL;
       }
    }
 
@@ -352,15 +485,55 @@ public class VideoServlet extends HttpServlet {
    }
 
    private class VideoFormatsMap extends TreeMap<Integer, VideoFormat> {
+
       public VideoFormatsMap() {
          // Check getFormatString(int) to understand the numbers.
          // This map is used in getPreferedURL to navigate through the fallbacks.
-         this.put(5 , new VideoFormat(5, 1, 0));
+         this.put(5, new VideoFormat(5, 1, 0));
          this.put(34, new VideoFormat(34, 1, 5));
          this.put(35, new VideoFormat(35, 1, 34));
          this.put(18, new VideoFormat(18, 2, 0));
          this.put(22, new VideoFormat(22, 2, 18));
          this.put(37, new VideoFormat(37, 2, 22));
+      }
+   }
+
+   private String getFormatString(int format) {
+      /** itag format mapping:
+       *  37 = 1920X1080 MP4
+       *  46 = 1920X1080 WebM
+       *  22 = 1280X720  MP4
+       *  45 = 1280X720  WebM
+       *  35 = Large     FLV
+       *  44 = Large     WebM
+       *  34 = Medium    FLV
+       *  18 = Medium    MP4
+       *  43 = Medium    WebM
+       *  5  = Small     FLV
+       */
+      switch (format) {
+         case 37:
+            return "HD-1080 (MP4)";
+         case 22:
+            return "HD-720 (MP4)";
+         case 18:
+            return "Medium (MP4)";
+         case 35:
+            return "Large (FLV)";
+         case 34:
+            return "Medium (FLV)";
+         case 5:
+            return "Small (FLV)";
+         case 46:
+            return "HD-1080 (WebM)";
+         case 45:
+            return "HD-720 (WebM)";
+         case 44:
+            return "Large (WebM)";
+         case 43:
+            return "Medium (WebM)";
+         default:
+            return "Unknown (" + format + ")";
       }
    }
 }
