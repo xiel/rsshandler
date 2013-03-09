@@ -278,6 +278,7 @@ public class VideoServlet extends HttpServlet {
        *   sig=502B8CB8901B3D9F993CA700679A1B2D1001AE33.38E86E9E9231C98C2C80FF67C48FED16E8AEA259\u0026
        *   fallback_host=tc.v20.cache4.c.youtube.com\u0026
        *   quality=hd720
+       * The order of the lines may change
        */
       private String rawURL;
       private VideoFormat format;
@@ -294,9 +295,11 @@ public class VideoServlet extends HttpServlet {
          "url[=|%3D](http.+?videoplayback.+id[=|%3D].+?)(?=&|,|$)",
          "(http.+?videoplayback.*?id[=|%3D].+?)(?=&|,|$)"
       };
-      private final String SIG_REGEX = "(sig|signature)(=|%3D)([0-9a-zA-Z]+\\.[0-9a-zA-Z]+)";
       private final int URL_REGEX_GROUP = 1;
-      private final int SIG_REGEX_GROUP = 3;
+
+      // The signature consists of two HEX strings concatenated by a dot.
+      private final String SIG_REGEX = "(=|%3D)([0-9a-fA-F]+\\.[0-9a-fA-F]+)";
+      private final int SIG_REGEX_GROUP = 2;
 
       private VideoURL(String raw) {
          rawURL = raw;
